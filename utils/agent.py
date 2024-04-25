@@ -1,3 +1,4 @@
+from einops import rearrange
 import torch
 
 import utils
@@ -28,14 +29,23 @@ class Agent:
         if hasattr(self.preprocess_obss, "vocab"):
             self.preprocess_obss.vocab.load_vocab(utils.get_vocab(model_dir))
 
-    def get_actions(self, obss):
-        preprocessed_obss = self.preprocess_obss(obss, device=device)
+        self.obs_buffer = torch.zeros(self.acmodel.memory_rnn.seq_len, self.num_envs, *obs_space["image"], device=device)
 
+    def get_actions(self, obss):
         with torch.no_grad():
-            if self.acmodel.recurrent:
-                dist, _, self.memories = self.acmodel(preprocessed_obss, self.memories)
-            else:
-                dist, _ = self.acmodel(preprocessed_obss)
+            preprocessed_obs_seq = rearrange(self.obs_buffer, 'l b h w c -> b l h w c')
+            dist, _ = self.acmodel(preprocessed_obs_seq, None)
+
+        preprocessed_obs = self.preprocess_obss(obss).image # [B, H, W, C] 
+
+        # Update buffers [L, B, H, W, C]
+        self.obs_buffer = torch.roll(self.obs_buffer, -1, dims=0)
+        self.obs_buffer[-1] = preprocessed_obs
+
+        preprocessed_obs_seq = rearrange(self.obs_buffer, 'l b h w c -> b l h w c')
+        # Do one agent-environment interaction
+        with torch.no_grad():
+            dist, value = self.acmodel(preprocessed_obs_seq, None)
 
         if self.argmax:
             actions = dist.probs.max(1, keepdim=True)[1]
