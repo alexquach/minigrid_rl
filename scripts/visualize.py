@@ -3,7 +3,7 @@ import numpy
 
 import utils
 from utils import device
-
+from tqdm import tqdm
 
 # Parse arguments
 
@@ -20,9 +20,9 @@ parser.add_argument("--argmax", action="store_true", default=False,
                     help="select the action with highest probability (default: False)")
 parser.add_argument("--pause", type=float, default=0.1,
                     help="pause duration between two consequent actions of the agent (default: 0.1)")
-parser.add_argument("--gif", type=str, default=None,
+parser.add_argument("--gif", type=str, default="video",
                     help="store output as gif with the given filename")
-parser.add_argument("--episodes", type=int, default=1000000,
+parser.add_argument("--episodes", type=int, default=20,
                     help="number of episodes to visualize")
 parser.add_argument("--memory", action="store_true", default=False,
                     help="add a LSTM to the model")
@@ -57,13 +57,14 @@ print("Agent loaded\n")
 
 if args.gif:
     from array2gif import write_gif
+    args.gif = f"{model_dir}/{args.model}_{args.gif}"
 
     frames = []
 
 # Create a window to view the environment
 env.render()
 
-for episode in range(args.episodes):
+for episode in tqdm(range(args.episodes), desc="Visualizing Episodes"):
     obs, _ = env.reset()
 
     while True:

@@ -59,13 +59,16 @@ parser.add_argument("--clip-eps", type=float, default=0.2,
                     help="clipping epsilon for PPO (default: 0.2)")
 parser.add_argument("--recurrence", type=int, default=1,
                     help="number of time-steps gradient is backpropagated (default: 1). If > 1, a LSTM is added to the model to have memory.")
+parser.add_argument("--memory", type=str, choices=['lstm', 'mamba', 'transformer'], default=None,
+                    help="type of memory module to use: lstm | mamba | transformer (default: None)")
 parser.add_argument("--text", action="store_true", default=False,
                     help="add a GRU to the model to handle text input")
 
 if __name__ == "__main__":
     args = parser.parse_args()
 
-    args.mem = args.recurrence > 1
+    if args.recurrence > 1 and args.memory is not None:
+        args.mem = args.memory
 
     # Set run dir
 
