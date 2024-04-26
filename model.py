@@ -64,35 +64,26 @@ class TransformerCell(nn.Module):
         output = self.transformer_decoder(src, memory)
         return output
 
-# class TransformerCell(nn.Module):
-#     def __init__(self, d_model, nhead=16, dim_feedforward=2048, dropout=0.1):
-#         super(TransformerCell, self).__init__()
-#         self.decoder_block = TransformerDecoderLayer(d_model=d_model, nhead=nhead, 
-#                                                          dim_feedforward=dim_feedforward, dropout=dropout)
-
-#     def forward(self, src, src_mask=None, src_key_padding_mask=None):
-#         decoded_output = self.decoder_block(tgt=output, memory=output)
-        
-#         return decoded_output, self.state_buffer
 
 class MambaCell(nn.Module):
-    def __init__(self, d_model, ssm_state_size):
+    def __init__(self, d_model, seq_len=16):
         super(MambaCell, self).__init__()
-        self.ssm = Block(ssm_state_size, Mamba)
+        self.seq_len = seq_len
+        self.mamba_block = Block(d_model, Mamba)
         self.d_model = d_model
-        self.ssm_state_size = ssm_state_size
+        self.positional_encoder = PositionalEncoder(self.d_model)
+        # self._init_weights()
+    
+    # def _init_weights(self):
+    #     for p in self.parameters():
+    #         if p.dim() > 1:
+    #             nn.init.xavier_uniform_(p)
 
-    def forward(self, input, ssm_state=None):
-        if ssm_state is None:
-            ssm_state = self.init_states(batch_size=input.size(0))
-
-        # print(f"ssm_state: {ssm_state.shape}")
-        ssm_output, new_ssm_state = self.ssm(input)  # Use input directly
-        return ssm_output, new_ssm_state
-
-    def init_states(self, batch_size):
-        ssm_state = torch.zeros(batch_size, 1, self.ssm_state_size * 2)
-        return ssm_state
+    def forward(self, src):
+        # src: [B, L, D]
+        src = self.positional_encoder(src)
+        output, residual = self.mamba_block(src)  # Use input directly
+        return output
 
 class ACModel(nn.Module, torch_ac.RecurrentACModel):
     def __init__(self, obs_space, action_space, use_memory=False, use_text=False):
@@ -121,7 +112,7 @@ class ACModel(nn.Module, torch_ac.RecurrentACModel):
             if self.use_memory == "lstm":
                 self.memory_rnn = nn.LSTMCell(self.image_embedding_size, self.semi_memory_size)
             elif self.use_memory == "mamba":
-                self.memory_rnn = MambaCell(self.image_embedding_size, self.semi_memory_size)
+                self.memory_rnn = MambaCell(self.image_embedding_size)
             elif self.use_memory == "transformer":
                 self.memory_rnn = TransformerCell(self.image_embedding_size)
 
@@ -140,7 +131,11 @@ class ACModel(nn.Module, torch_ac.RecurrentACModel):
         # Define actor's model
         self.actor = nn.Sequential(
             nn.Flatten(start_dim=1),
-            nn.Linear(self.embedding_size * self.memory_rnn.seq_len, action_space.n),
+            nn.Linear(self.embedding_size * self.memory_rnn.seq_len, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, action_space.n)
             # nn.Linear(self.embedding_size, 64),
             # nn.Tanh(),
             # nn.Linear(64, action_space.n)
@@ -150,7 +145,7 @@ class ACModel(nn.Module, torch_ac.RecurrentACModel):
         self.critic = nn.Sequential(
             nn.Flatten(start_dim=1),
             nn.Linear(self.embedding_size * self.memory_rnn.seq_len, 64),
-            nn.Tanh(),
+            nn.ReLU(),
             nn.Linear(64, 1)
         )
 
