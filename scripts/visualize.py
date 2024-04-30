@@ -1,12 +1,13 @@
 import argparse
 import numpy
+import numpy as np
 
 import utils
 from utils import device
 from tqdm import tqdm
+import json
 
 # Parse arguments
-
 parser = argparse.ArgumentParser()
 parser.add_argument("--env", required=True,
                     help="name of the environment to be run (REQUIRED)")
@@ -32,29 +33,24 @@ parser.add_argument("--text", action="store_true", default=False,
 args = parser.parse_args()
 
 # Set seed for all randomness sources
-
 utils.seed(args.seed)
 
 # Set device
-
 print(f"Device: {device}\n")
 
 # Load environment
-
 env = utils.make_env(args.env, args.seed, render_mode="human")
 for _ in range(args.shift):
     env.reset()
 print("Environment loaded\n")
 
 # Load agent
-
 model_dir = utils.get_model_dir(args.model)
 agent = utils.Agent(env.observation_space, env.action_space, model_dir,
                     argmax=args.argmax, use_memory=args.memory, use_text=args.text)
 print("Agent loaded\n")
 
 # Run the agent
-
 if args.gif:
     from array2gif import write_gif
     args.gif = f"{model_dir}/{args.model}_{args.gif}"
@@ -63,22 +59,49 @@ if args.gif:
 
 # Create a window to view the environment
 env.render()
+export_map = []
 
 for episode in tqdm(range(args.episodes), desc="Visualizing Episodes"):
     obs, _ = env.reset()
 
+    timestep = 0
     while True:
         env.render()
         if args.gif:
             frames.append(numpy.moveaxis(env.get_frame(), 2, 0))
 
-        action = agent.get_action(obs)
+        action, embedding = agent.get_action(obs)
         obs, reward, terminated, truncated, _ = env.step(action)
         done = terminated | truncated
         agent.analyze_feedback(reward, done)
 
+        export_map.append({
+            "episode": episode,
+            "timestep": timestep,
+            "action": action,
+            "embedding": embedding,
+            "reward": reward,
+            "done": done
+        })
         if done:
             break
+        timestep += 1
+
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NpEncoder, self).default(obj)
+
+export_filename = f"{model_dir}/{args.model}_export_map.json"
+with open(export_filename, 'w') as f:
+    json.dump(export_map, f, indent=4, cls=NpEncoder)
+print(f"Export map saved to {export_filename}")
+
 
 if args.gif:
     print("Saving gif... ", end="")
