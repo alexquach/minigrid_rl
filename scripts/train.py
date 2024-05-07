@@ -150,6 +150,7 @@ if __name__ == "__main__":
     num_frames = status["num_frames"]
     update = status["update"]
     start_time = time.time()
+    last_save_mod_500k = 0
 
     while num_frames < args.frames:
         # Update model parameters
@@ -204,3 +205,10 @@ if __name__ == "__main__":
                 status["vocab"] = preprocess_obss.vocab.vocab
             utils.save_status(status, model_dir)
             txt_logger.info("Status saved")
+
+            if num_frames > last_save_mod_500k * 500000:
+                last_save_mod_500k += 1
+                save_suffix = num_frames // 1000  # Convert to 'k' units
+                status_filename = f"status{save_suffix}k.pt"
+                utils.save_status(status, model_dir, filename=status_filename)
+                txt_logger.info(f"Status saved with filename {status_filename}")

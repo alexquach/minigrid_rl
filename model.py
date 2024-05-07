@@ -45,8 +45,9 @@ class TransformerCell(nn.Module):
     def __init__(self, d_model, nhead=16, dropout=0.1, num_layers=1, seq_len=None):
         super().__init__()
         self.seq_len = seq_len
-        self.positional_encoder = PositionalEncoder(d_model, max_seq_len=self.seq_len)
-        decoder_layer = TransformerDecoderLayer(d_model=d_model, nhead=nhead, dropout=dropout)
+        self.positional_encoder = PositionalEncoder(d_model, 16)
+        # self.transformer_decoder = TransformerDecoderLayer(d_model=d_model, nhead=nhead, dropout=dropout, batch_first=False)
+        decoder_layer = TransformerDecoderLayer(d_model=d_model, nhead=nhead, dropout=dropout, batch_first=False)
         self.transformer_decoder = TransformerDecoder(decoder_layer, num_layers=num_layers)
         self._init_weights()
 
@@ -127,10 +128,15 @@ class ACModel(nn.Module, torch_ac.RecurrentACModel):
         # Define actor's model
         self.actor = nn.Sequential(
             nn.Flatten(start_dim=1),
+
+            # For Transformer
             nn.Linear(self.embedding_size * self.memory_rnn.seq_len, action_space.n),
+
+            # For LSTM 
             # nn.Linear(self.embedding_size * self.memory_rnn.seq_len, 64),
             # nn.Tanh(),
             # nn.Linear(64, action_space.n)
+
             # nn.Linear(self.embedding_size, 64),
             # nn.Tanh(),
             # nn.Linear(64, action_space.n)
@@ -149,21 +155,36 @@ class ACModel(nn.Module, torch_ac.RecurrentACModel):
 
     @property
     def memory_size(self):
-        return self.semi_memory_size
+        if self.use_memory == "lstm":
+            return self.semi_memory_size * 2
+        else:
+            return self.semi_memory_size
 
     @property
     def semi_memory_size(self):
         return self.image_embedding_size
 
-    def forward(self, obs_seq, mask_buffer=None):
-        # [B, L, H, W, C]
-        x = obs_seq.transpose(2, 4).transpose(3, 4)
-        x = x.reshape(-1, *x.shape[2:])
-        x = self.image_conv(x)
-        x = x.reshape(obs_seq.shape[0], obs_seq.shape[1], -1)
-        # [B, L, D]
+    def forward(self, obs_seq, mask_buffer=None, return_hidden=False, memory=None):
+        if obs_seq.dim() == 4:
+            x = obs_seq.transpose(1, 3).transpose(2, 3)
+            x = self.image_conv(x)
+            x = x.reshape(x.shape[0], -1)
+        else:
+            # [B, L, H, W, C]
+            x = obs_seq.transpose(2, 4).transpose(3, 4)
+            x = x.reshape(-1, *x.shape[2:])
+            x = self.image_conv(x)
+            x = x.reshape(obs_seq.shape[0], obs_seq.shape[1], -1)
+            # [B, L, D]
 
-        if self.use_memory == "transformer":
+        if self.use_memory == "lstm":
+            hidden = (memory[:, :self.semi_memory_size], memory[:, self.semi_memory_size:])
+            hidden = self.memory_rnn(x, hidden)
+            embedding = hidden[0]
+            memory = torch.cat(hidden, dim=1)
+        elif self.use_memory == "mamba":
+            embedding = self.memory_rnn(x)
+        elif self.use_memory == "transformer":
             embedding = self.memory_rnn(x, mask_buffer)
         else:
             embedding = x
@@ -178,7 +199,11 @@ class ACModel(nn.Module, torch_ac.RecurrentACModel):
         x = self.critic(embedding)
         value = x.squeeze(1)
 
-        return dist, value
+        if self.use_memory == "lstm":
+            return dist, value, memory
+        if not return_hidden:
+            return dist, value
+        return dist, value, embedding
 
     def _get_embed_text(self, text):
         _, hidden = self.text_rnn(self.word_embedding(text))
