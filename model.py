@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -112,7 +113,8 @@ class ACModel(nn.Module, torch_ac.RecurrentACModel):
                 self.memory_rnn = MambaCell(self.image_embedding_size, seq_len=seq_len)
             elif self.use_memory == "transformer":
                 self.memory_rnn = TransformerCell(self.image_embedding_size, seq_len=seq_len)
-
+            elif self.use_memory == "mlp":
+                self.memory_rnn = SimpleNamespace(seq_len=seq_len, d_model=self.image_embedding_size)
         # Define text embedding
         if self.use_text:
             self.word_embedding_size = 32
@@ -130,7 +132,7 @@ class ACModel(nn.Module, torch_ac.RecurrentACModel):
             nn.Flatten(start_dim=1),
 
             # For Transformer
-            nn.Linear(self.embedding_size * self.memory_rnn.seq_len, action_space.n),
+            nn.Linear(self.embedding_size * self.memory_rnn.seq_len, action_space.n - 2),
 
             # For LSTM 
             # nn.Linear(self.embedding_size * self.memory_rnn.seq_len, 64),

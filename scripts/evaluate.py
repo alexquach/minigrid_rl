@@ -6,6 +6,26 @@ from torch_ac.utils.penv import ParallelEnv
 import utils
 from utils import device
 
+def action_remapping(action):
+    # action_map = {
+    #     0: 0,
+    #     1: 1,
+    #     2: 2,
+    #     3: 3,
+    #     4: 4,
+    #     5: 5,
+    #     6: 6
+    # }
+    action_map = {
+        0: 0,
+        1: 1,
+        2: 2,
+        3: 3,
+        4: 5
+        # 4: 4,
+        # 5: 5
+    }
+    return action_map[action]
 
 # Parse arguments
 
@@ -73,6 +93,7 @@ if __name__ == "__main__":
 
     while log_done_counter < args.episodes:
         actions = agent.get_actions(obss)
+        actions = action_remapping(actions)
         obss, rewards, terminateds, truncateds, _ = env.step(actions)
         dones = tuple(a | b for a, b in zip(terminateds, truncateds))
         agent.analyze_feedbacks(rewards, dones)

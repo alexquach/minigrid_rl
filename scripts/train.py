@@ -59,7 +59,7 @@ parser.add_argument("--clip-eps", type=float, default=0.2,
                     help="clipping epsilon for PPO (default: 0.2)")
 parser.add_argument("--recurrence", type=int, default=1,
                     help="number of time-steps gradient is backpropagated (default: 1). If > 1, a LSTM is added to the model to have memory.")
-parser.add_argument("--memory", type=str, choices=['lstm', 'mamba', 'transformer'], default=None,
+parser.add_argument("--memory", type=str, choices=['lstm', 'mamba', 'transformer', 'mlp'], default=None,
                     help="type of memory module to use: lstm | mamba | transformer (default: None)")
 parser.add_argument("--text", action="store_true", default=False,
                     help="add a GRU to the model to handle text input")
@@ -67,7 +67,7 @@ parser.add_argument("--text", action="store_true", default=False,
 if __name__ == "__main__":
     args = parser.parse_args()
 
-    if args.recurrence > 1 and args.memory is not None:
+    if args.memory is not None:
         args.mem = args.memory
 
     # Set run dir
@@ -151,6 +151,7 @@ if __name__ == "__main__":
     update = status["update"]
     start_time = time.time()
     last_save_mod_500k = 0
+    frame_count_met_target = None
 
     while num_frames < args.frames:
         # Update model parameters
@@ -195,6 +196,16 @@ if __name__ == "__main__":
 
             for field, value in zip(header, data):
                 tb_writer.add_scalar(field, value, num_frames)
+
+        # Check mean return to decide whether to stop training
+        mean_return = return_per_episode.get('mean', 0)  # Adjust key if necessary
+        if mean_return > 0.96:
+            if frame_count_met_target is None:
+                frame_count_met_target = num_frames
+            txt_logger.info(f"Mean return {mean_return} is greater than 0.98, will stop after 100k more frames")
+            if num_frames >= frame_count_met_target + 100000:
+                txt_logger.info("Stopping training after additional 100k frames")
+                break
 
         # Save status
 
